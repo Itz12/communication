@@ -19,7 +19,7 @@ dependencies = [
 kafka = ["confluent-kafka>=2.5,<3"]
 # Kept as a compatibility extra for consumers already pinning [all].
 all = ["confluent-kafka>=2.5,<3"]
-dev = ["build>=1.2,<2", "pytest>=8,<10", "pytest-django>=4.9,<5"]
+dev = ["build>=1.2,<2", "pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-django>=4.9,<5"]
 
 [project.scripts]
 musttip-communication-kafka-check = "communication.diagnostics:main"
