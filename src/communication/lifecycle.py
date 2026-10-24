@@ -30,7 +30,7 @@ class AsyncRuntime:
                 loop = asyncio.new_event_loop()
                 self._loop = loop
                 asyncio.set_event_loop(loop)
-                self._ready.set()
+                loop.call_soon(self._ready.set)
                 try:
                     loop.run_forever()
                 finally:

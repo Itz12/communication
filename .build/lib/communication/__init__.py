@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .bus import EventBus
-from .config import CommunicationSettings, KafkaSettings, NatsSettings
+from .config import CommunicationSettings, KafkaSettings
 from .consumer import ConsumerService, create_consumer_service, start_consumer_in_background
 from .diagnostics import KafkaDiagnosticReport, run_kafka_roundtrip
 from .envelope import EventEnvelope
@@ -24,7 +24,6 @@ __all__ = [
     "HandlerRegistry",
     "KafkaDiagnosticReport",
     "KafkaSettings",
-    "NatsSettings",
     "create_consumer_service",
     "deserialize_event",
     "deserialize_payload",

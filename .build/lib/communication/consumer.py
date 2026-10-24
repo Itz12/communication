@@ -189,19 +189,14 @@ class ConsumerService:
         try:
             uuid.UUID(str(event_id))
         except (ValueError, TypeError, AttributeError):
-            # Kafka offsets and JetStream stream sequences remain stable across
-            # redelivery while allowing two legitimate messages with identical
-            # payloads to be processed independently. Core NATS has no durable
-            # delivery identity, so generate a new event id rather than dropping
-            # equal payloads as false duplicates.
+            # Kafka offsets remain stable across redelivery while allowing two
+            # legitimate messages with identical payloads to be processed
+            # independently.
             if message.partition is not None and message.offset is not None:
                 identity = (
                     f"{message.transport}:{message.topic}:"
                     f"{message.partition}:{message.offset}"
                 )
-                event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, identity))
-            elif message.sequence is not None:
-                identity = f"{message.transport}:{message.topic}:{message.sequence}"
                 event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, identity))
             else:
                 event_id = str(uuid.uuid4())

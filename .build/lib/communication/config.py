@@ -12,7 +12,7 @@ from .errors import ConfigurationError
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _TOPIC_PART_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,248}$", re.ASCII)
 _ALLOWED_MODES = frozenset({"primary", "failover", "all", "any"})
-_ALLOWED_TRANSPORTS = frozenset({"kafka", "nats"})
+_ALLOWED_TRANSPORTS = frozenset({"kafka"})
 _KAFKA_SETTING_KEYS = frozenset(
     {
         "ACKS",
@@ -493,81 +493,12 @@ class KafkaSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class NatsSettings:
-    servers: tuple[str, ...] = ("nats://localhost:4222",)
-    name: str = "must-tip"
-    token: str | None = field(default=None, repr=False)
-    user_credentials: str | None = None
-    user: str | None = None
-    password: str | None = field(default=None, repr=False)
-    tls_ca_file: str | None = None
-    tls_cert_file: str | None = None
-    tls_key_file: str | None = field(default=None, repr=False)
-    tls_hostname: str | None = None
-    require_tls: bool = False
-    jetstream: bool = True
-    stream: str | None = None
-    publish_timeout_seconds: float = 5.0
-    ack_wait_seconds: int = 60
-    max_deliver: int = 5
-    extra: Mapping[str, Any] = field(default_factory=dict, repr=False)
-
-    def __post_init__(self) -> None:
-        if not self.servers or len(self.servers) > 64:
-            raise ConfigurationError("NATS servers must not be empty")
-        tls_servers = 0
-        for server in self.servers:
-            if not server or len(server) > 512 or _CONTROL_RE.search(server):
-                raise ConfigurationError("NATS servers contains an invalid server")
-            if server.startswith("tls://"):
-                tls_servers += 1
-            elif not server.startswith("nats://"):
-                raise ConfigurationError("NATS server URLs must use nats:// or tls://")
-        if self.require_tls and tls_servers != len(self.servers):
-            raise ConfigurationError(
-                "NATS require_tls forbids plaintext nats:// server URLs"
-            )
-        if 0 < tls_servers < len(self.servers):
-            raise ConfigurationError(
-                "NATS TLS and plaintext server URLs must not be mixed"
-            )
-        if self.token and (self.user_credentials or self.user or self.password):
-            raise ConfigurationError("NATS authentication methods must not be combined")
-        if self.user_credentials and (self.user or self.password):
-            raise ConfigurationError("NATS credentials and user/password must not be combined")
-        if bool(self.user) != bool(self.password):
-            raise ConfigurationError("NATS user and password must be configured together")
-        if bool(self.tls_cert_file) != bool(self.tls_key_file):
-            raise ConfigurationError("NATS TLS certificate and key must be configured together")
-        object.__setattr__(self, "extra", MappingProxyType(dict(self.extra)))
-
-    def redacted(self) -> Mapping[str, object]:
-        return MappingProxyType(
-            {
-                "servers": self.servers,
-                "name": self.name,
-                "authentication": "token" if self.token else "creds" if self.user_credentials else "user_password" if self.user else "none",
-                "tls_ca_file": self.tls_ca_file,
-                "tls_cert_file": self.tls_cert_file,
-                "tls_hostname": self.tls_hostname,
-                "require_tls": self.require_tls,
-                "jetstream": self.jetstream,
-                "stream": self.stream,
-                "publish_timeout_seconds": self.publish_timeout_seconds,
-                "ack_wait_seconds": self.ack_wait_seconds,
-                "max_deliver": self.max_deliver,
-                "extra_keys": tuple(sorted(self.extra)),
-            }
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class CommunicationSettings:
     service_name: str = "authentication"
-    enabled_transports: tuple[str, ...] = ("nats",)
-    primary_transport: str = "nats"
+    enabled_transports: tuple[str, ...] = ("kafka",)
+    primary_transport: str = "kafka"
     publish_mode: str = "primary"
-    consumer_transports: tuple[str, ...] = ("nats",)
+    consumer_transports: tuple[str, ...] = ("kafka",)
     default_topic: str = "accounts.events"
     topic_prefix: str = ""
     schema_version: str = "v1"
@@ -590,7 +521,6 @@ class CommunicationSettings:
     signing_key_id: str | None = None
     signing_keys: Mapping[str, str] = field(default_factory=dict, repr=False)
     kafka: KafkaSettings = field(default_factory=KafkaSettings)
-    nats: NatsSettings = field(default_factory=NatsSettings)
 
     def __post_init__(self) -> None:
         enabled = tuple(dict.fromkeys(item.casefold() for item in self.enabled_transports))
@@ -604,10 +534,6 @@ class CommunicationSettings:
         mode = self.publish_mode.casefold()
         if mode not in _ALLOWED_MODES:
             raise ConfigurationError(f"publish_mode must be one of {sorted(_ALLOWED_MODES)}")
-        if mode == "all" and len(enabled) < 2:
-            raise ConfigurationError("publish_mode='all' requires at least two transports")
-        if self.require_durable_consumers and "nats" in consumers and not self.nats.jetstream:
-            raise ConfigurationError("durable NATS consumption requires JetStream")
         if self.signing_required and not self.signing_keys:
             raise ConfigurationError("signing_required requires signing_keys")
         if self.signing_key_id and self.signing_key_id not in self.signing_keys:
@@ -655,19 +581,19 @@ class CommunicationSettings:
                 "signing_required": self.signing_required,
                 "signing_key_ids": tuple(sorted(self.signing_keys)),
                 "kafka": self.kafka.redacted(),
-                "nats": self.nats.redacted(),
             }
         )
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> "CommunicationSettings":
         cfg = dict(raw or {})
+        if "NATS" in cfg:
+            raise ConfigurationError("NATS configuration is no longer supported; use Kafka")
         kafka_raw = _normalized_kafka_mapping(
             cfg.get("KAFKA"),
             name="KAFKA",
             extras_target="PRODUCER",
         )
-        nats_raw = dict(cfg.get("NATS") or {})
         kafka = KafkaSettings(
             bootstrap_servers=tuple(_sequence(kafka_raw.get("BOOTSTRAP_SERVERS"), ("localhost:9092",), "KAFKA.BOOTSTRAP_SERVERS")),
             client_id=_safe_text(kafka_raw.get("CLIENT_ID"), str(cfg.get("SERVICE_NAME") or "must-tip"), "KAFKA.CLIENT_ID"),
@@ -690,32 +616,13 @@ class CommunicationSettings:
             consumer_max_poll_interval_ms=_bounded_int(kafka_raw.get("CONSUMER_MAX_POLL_INTERVAL_MS"), 900_000, 30_000, 86_400_000, "KAFKA.CONSUMER_MAX_POLL_INTERVAL_MS"),
             extra_producer_config=_mapping(kafka_raw.get("EXTRA_PRODUCER_CONFIG"), "KAFKA.EXTRA_PRODUCER_CONFIG"),
         )
-        nats = NatsSettings(
-            servers=tuple(_sequence(nats_raw.get("SERVERS"), ("nats://localhost:4222",), "NATS.SERVERS")),
-            name=_safe_text(nats_raw.get("NAME"), str(cfg.get("SERVICE_NAME") or "must-tip"), "NATS.NAME"),
-            token=nats_raw.get("TOKEN"),
-            user_credentials=nats_raw.get("CREDENTIALS_FILE"),
-            user=nats_raw.get("USER"),
-            password=nats_raw.get("PASSWORD"),
-            tls_ca_file=nats_raw.get("TLS_CA_FILE"),
-            tls_cert_file=nats_raw.get("TLS_CERT_FILE"),
-            tls_key_file=nats_raw.get("TLS_KEY_FILE"),
-            tls_hostname=nats_raw.get("TLS_HOSTNAME"),
-            require_tls=_strict_bool(nats_raw.get("REQUIRE_TLS"), False),
-            jetstream=_strict_bool(nats_raw.get("JETSTREAM"), True),
-            stream=nats_raw.get("STREAM"),
-            publish_timeout_seconds=_bounded_float(nats_raw.get("PUBLISH_TIMEOUT_SECONDS"), 5.0, 0.1, 120.0, "NATS.PUBLISH_TIMEOUT_SECONDS"),
-            ack_wait_seconds=_bounded_int(nats_raw.get("ACK_WAIT_SECONDS"), 60, 1, 86_400, "NATS.ACK_WAIT_SECONDS"),
-            max_deliver=_bounded_int(nats_raw.get("MAX_DELIVER"), 5, 1, 1000, "NATS.MAX_DELIVER"),
-            extra=_mapping(nats_raw.get("EXTRA"), "NATS.EXTRA"),
-        )
         signing_keys = cfg.get("SIGNING_KEYS") or {}
         return cls(
             service_name=_safe_text(cfg.get("SERVICE_NAME"), "authentication", "SERVICE_NAME"),
-            enabled_transports=_sequence(cfg.get("ENABLED_TRANSPORTS"), ("nats",), "ENABLED_TRANSPORTS"),
-            primary_transport=_safe_text(cfg.get("PRIMARY_TRANSPORT"), "nats", "PRIMARY_TRANSPORT", 32),
+            enabled_transports=_sequence(cfg.get("ENABLED_TRANSPORTS"), ("kafka",), "ENABLED_TRANSPORTS"),
+            primary_transport=_safe_text(cfg.get("PRIMARY_TRANSPORT"), "kafka", "PRIMARY_TRANSPORT", 32),
             publish_mode=_safe_text(cfg.get("PUBLISH_MODE"), "primary", "PUBLISH_MODE", 32),
-            consumer_transports=_sequence(cfg.get("CONSUMER_TRANSPORTS"), _sequence(cfg.get("ENABLED_TRANSPORTS"), ("nats",), "ENABLED_TRANSPORTS"), "CONSUMER_TRANSPORTS"),
+            consumer_transports=_sequence(cfg.get("CONSUMER_TRANSPORTS"), _sequence(cfg.get("ENABLED_TRANSPORTS"), ("kafka",), "ENABLED_TRANSPORTS"), "CONSUMER_TRANSPORTS"),
             default_topic=_safe_text(cfg.get("DEFAULT_TOPIC"), "accounts.events", "DEFAULT_TOPIC"),
             topic_prefix=str(cfg.get("TOPIC_PREFIX") or "").strip(),
             schema_version=_safe_text(cfg.get("SCHEMA_VERSION"), "v1", "SCHEMA_VERSION", 32),
@@ -738,7 +645,6 @@ class CommunicationSettings:
             signing_key_id=cfg.get("SIGNING_KEY_ID"),
             signing_keys=_mapping(signing_keys, "SIGNING_KEYS"),
             kafka=kafka,
-            nats=nats,
         )
 
     @classmethod
@@ -841,15 +747,15 @@ class CommunicationSettings:
         merged.setdefault("SERVICE_NAME", inherited("SERVICE_NAME", "authentication"))
         merged.setdefault("DEFAULT_TOPIC", inherited("ACCOUNTS_DEFAULT_TOPIC", inherited("KAFKA_DEFAULT_TOPIC", "accounts.events")))
         if "ENABLED_TRANSPORTS" not in merged:
-            backend = str(inherited("COMMUNICATION_BACKEND", "nats")).casefold()
-            merged["ENABLED_TRANSPORTS"] = ("kafka", "nats") if backend in {"both", "all"} else (backend,)
+            backend = str(inherited("COMMUNICATION_BACKEND", "kafka")).casefold()
+            merged["ENABLED_TRANSPORTS"] = (backend,)
         merged["ENABLED_TRANSPORTS"] = _sequence(
-            merged["ENABLED_TRANSPORTS"], ("nats",), "ENABLED_TRANSPORTS"
+            merged["ENABLED_TRANSPORTS"], ("kafka",), "ENABLED_TRANSPORTS"
         )
         default_primary = (
             merged["ENABLED_TRANSPORTS"][0]
             if merged["ENABLED_TRANSPORTS"]
-            else "nats"
+            else "kafka"
         )
         merged.setdefault(
             "PRIMARY_TRANSPORT",
@@ -896,11 +802,4 @@ class CommunicationSettings:
         kafka.setdefault("SSL_CA_LOCATION", inherited("KAFKA_CA_FILE", inherited("KAFKA_SSL_CA_LOCATION", kafka.get("SSL_CA_LOCATION"))))
         merged["KAFKA"] = kafka
 
-        nats = dict(merged.get("NATS") or {})
-        nats.setdefault("SERVERS", inherited("NATS_SERVERS", inherited("NATS_URL", "nats://localhost:4222")))
-        nats.setdefault("TOKEN", inherited("NATS_TOKEN", None))
-        nats.setdefault("CREDENTIALS_FILE", inherited("NATS_CRED_FILE", None))
-        nats.setdefault("TLS_CA_FILE", inherited("NATS_CA_FILE", inherited("NATS_TLS_CA", None)))
-        nats.setdefault("JETSTREAM", inherited("NATS_USE_JETSTREAM", True))
-        merged["NATS"] = nats
         return cls.from_mapping(merged)

@@ -27,13 +27,13 @@ def _import_handler(path: str):
 
 
 class Command(BaseCommand):
-    help = "Run an accounts event consumer over Kafka, NATS, or both."
+    help = "Run an accounts event consumer over Kafka."
 
     def add_arguments(self, parser):
         parser.add_argument("--topic", action="append", dest="topics", default=[])
         parser.add_argument("--group-id", default="accounts-events")
         parser.add_argument("--handler", required=True)
-        parser.add_argument("--transport", action="append", dest="transports", choices=("kafka", "nats"))
+        parser.add_argument("--transport", action="append", dest="transports", choices=("kafka",))
         parser.add_argument("--concurrency", type=int, default=4)
         parser.add_argument("--max-pending", type=int, default=2000)
         parser.add_argument("--once", action="store_true")

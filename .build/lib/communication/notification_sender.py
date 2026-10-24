@@ -6,28 +6,17 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-from .nat.publisher_high_throughput import PublisherHighThroughput
 from .producer import AccountsProducer
 
-_publisher: Optional[PublisherHighThroughput] = None
-_publisher_lock = threading.RLock()
 _accounts_producer: Optional[AccountsProducer] = None
 _accounts_lock = threading.RLock()
 
 
-def get_publisher(start: bool = False) -> PublisherHighThroughput:
-    """Return the legacy NATS-only buffered publisher.
-
-    New application code should use :class:`AccountsProducer` or :class:`EventBus`
-    so Kafka, NATS, failover, and mirrored delivery remain configurable.
-    """
-    global _publisher
-    with _publisher_lock:
-        if _publisher is None:
-            _publisher = PublisherHighThroughput()
+def get_publisher(start: bool = False) -> AccountsProducer:
+    """Return the Kafka-backed producer used by notification compatibility APIs."""
     if start:
-        raise RuntimeError("Call await get_publisher().start() from an async startup hook")
-    return _publisher
+        raise RuntimeError("The Kafka producer is started lazily when an event is published")
+    return get_accounts_producer()
 
 
 def get_accounts_producer() -> AccountsProducer:
@@ -58,19 +47,11 @@ async def publish_notification_event_async(
     event_id: Optional[str] = None,
     use_jetstream: bool = False,
     trace_id: Optional[str] = None,
-    publisher: Optional[PublisherHighThroughput] = None,
+    publisher: Optional[AccountsProducer] = None,
 ) -> None:
-    if publisher is not None:
-        if publisher.running is not True:
-            raise RuntimeError("Publisher not started: call await get_publisher().start() at process startup")
-        await publisher.publish_async(
-            subject=subject,
-            payload=_to_bytes(_pack_envelope(subject, payload, event_id)),
-            headers={"trace-id": trace_id} if trace_id else None,
-            use_jetstream=use_jetstream,
-        )
-        return
-    await get_accounts_producer().publish_event_async(
+    del use_jetstream
+    producer = publisher or get_accounts_producer()
+    await producer.publish_event_async(
         payload,
         topic=subject,
         event_type=subject,
@@ -86,29 +67,10 @@ def publish_notification_event_sync(
     event_id: Optional[str] = None,
     use_jetstream: bool = False,
     trace_id: Optional[str] = None,
-    publisher: Optional[PublisherHighThroughput] = None,
+    publisher: Optional[AccountsProducer] = None,
 ) -> None:
-    if publisher is not None:
-        # Legacy publisher is event-loop bound; callers inside async code must use
-        # the async function rather than creating a second loop around it.
-        import asyncio
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(
-                publish_notification_event_async(
-                    subject,
-                    payload,
-                    event_id=event_id,
-                    use_jetstream=use_jetstream,
-                    trace_id=trace_id,
-                    publisher=publisher,
-                )
-            )
-            return
-        raise RuntimeError("publish_notification_event_sync cannot run inside an event loop")
-    get_accounts_producer().publish_event(
+    del use_jetstream
+    (publisher or get_accounts_producer()).publish_event(
         payload,
         topic=subject,
         event_type=subject,

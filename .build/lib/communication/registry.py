@@ -6,7 +6,7 @@ from typing import Iterable, Mapping
 from .config import CommunicationSettings
 from .errors import ConfigurationError, TransportUnavailable
 from .protocols import EventTransport
-from .transports import KafkaTransport, NatsTransport
+from .transports import KafkaTransport
 
 
 class TransportRegistry:
@@ -27,8 +27,6 @@ class TransportRegistry:
     def _build(self, name: str) -> EventTransport:
         if name == "kafka":
             return KafkaTransport(self.settings.kafka)
-        if name == "nats":
-            return NatsTransport(self.settings.nats)
         raise TransportUnavailable(f"transport {name!r} is not configured")
 
     def get(self, name: str) -> EventTransport:

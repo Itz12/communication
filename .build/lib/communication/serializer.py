@@ -1,12 +1,8 @@
-"""Canonical serialization adapters for the Must Tip communication system.
+"""Canonical Kafka serialization adapters for Must Tip events.
 
-Kafka and NATS both transport bytes. Serialization is therefore a communication
-contract concern, not a broker-specific concern. This module delegates event
-validation and canonical encoding to the existing ``EventEnvelope`` implementation
-so there is only one wire format and one validation policy.
-
-The public callables accept optional context arguments for compatibility with
-Kafka/NATS client callbacks and the existing legacy consumer deserializer API.
+Serialization is a communication contract concern, not a client-library concern.
+This module delegates event validation and encoding to ``EventEnvelope`` so the
+package has one wire format and one validation policy.
 """
 
 from __future__ import annotations

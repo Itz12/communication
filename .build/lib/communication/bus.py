@@ -63,6 +63,7 @@ class EventBus:
         data: object,
         topic: str | None = None,
         event_id: str | None = None,
+        schema_version: str | None = None,
         trace_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
@@ -85,6 +86,8 @@ class EventBus:
                 maximum_value_length=self.settings.max_header_value_length,
             ),
         }
+        if schema_version is not None:
+            kwargs["schema_version"] = schema_version
         if event_id is not None:
             kwargs["event_id"] = event_id
         return EventEnvelope(**kwargs)
