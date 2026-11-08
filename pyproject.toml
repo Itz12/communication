@@ -7,7 +7,7 @@ name = "musttip-communication"
 version = "1.1.0"
 description = "Durable, authenticated Kafka communication SDK for MustTip services."
 readme = "README.md"
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.12,<3.16"
 license = { text = "Proprietary" }
 dependencies = [
   "Django>=4.2,<6.1",
